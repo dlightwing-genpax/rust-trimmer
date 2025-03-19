@@ -1,0 +1,12 @@
+[package]
+name = "rust-trimmer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rayon = "1.7"
+bitvec = {version = "1.0.1", features = ["serde"] }
+clap = { version = "4.5.19", features = ["derive"] }
+memory-stats = "1.0.0"
+flate2 = "1.0.34"
+itertools = "0.13.0"
