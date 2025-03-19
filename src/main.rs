@@ -198,7 +198,7 @@ fn build_inverses(klen: usize) -> Vec<usize> {
 }
 
 
-fn consensus(candidates: &Vec<(bool, usize, usize)>, klen: usize, side: bool, ok: bool) -> (bool, usize, usize, usize) {
+fn consensus(candidates: &Vec<(bool, usize, usize)>, klen: usize, side: bool, allow_fail: bool) -> (bool, usize, usize, usize) {
     // merges all candidates, picks consensus bases
     // panics if there isn't an obvious consensus at some base
     let mut per_base_votes = vec![[0; 4]; klen];
@@ -225,7 +225,7 @@ fn consensus(candidates: &Vec<(bool, usize, usize)>, klen: usize, side: bool, ok
         if *ranked_decision[1].1 > ranked_decision[0].1 * 3 / 4 {
             println!("Warning: adapter may be unreliable at position {j} {ranked_decision:?} {}!", candidates.len());
             valid = false;
-            if !ok {
+            if !allow_fail {
                 std::process::exit(95);
             }
 
@@ -263,8 +263,9 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
     println!("Found {:?} strong adapter candidates -- {:?}.", 
         candidates.len(), t2.duration_since(t1).unwrap());
     
-    let (valid1, adapter1, a1_bit1, a1_bit2) = consensus(&candidates, klen, false, candidates.len() < 100);
-    let (valid2, adapter2, a2_bit1, a2_bit2) = consensus(&candidates, klen, true, candidates.len() < 100);
+    let allow_fail = candidates.len() < 100;
+    let (valid1, adapter1, a1_bit1, a1_bit2) = consensus(&candidates, klen, false, allow_fail);
+    let (valid2, adapter2, a2_bit1, a2_bit2) = consensus(&candidates, klen, true, allow_fail);
 
     let trimlens = if !valid1 || !valid2 {
         println!("Couldn't identify adapter, however only {} adapter candidates, so skipping...", candidates.len());
