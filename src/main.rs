@@ -247,7 +247,7 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
     let t1 = SystemTime::now();
 
     let n_bases = readset.par_iter().map(|y| y[0].0.len() + y[1].0.len()).sum::<usize>();
-    println!("Loaded {n_bases} bases from {} reads -- {:?}.\n", 
+    println!("Loaded {n_bases} bases {} reads from {inpaths:?} -- {:?}.\n", 
         readset.len(), t1.duration_since(t0).unwrap());
 
     let candidates = readset.par_iter().flat_map(|read| {
@@ -278,7 +278,7 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
     
         outputs.into_par_iter().enumerate().for_each(|(i, s)| {
             let mut tmp = GzEncoder::new(Vec::new(), Compression::fast());
-            let _ = tmp.write_all(s.into_iter().map(|x| x.1).join("").as_bytes()).unwrap();
+            let _ = tmp.write_all(s.into_iter().map(|x| x.2).join("").as_bytes()).unwrap();
             let _ = fs::write(&outpaths[i], tmp.finish().unwrap());
         });
     
@@ -286,8 +286,8 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
             pre_nr, pre_nb,
             trimmed_nr, 100.0*trimmed_nr as f64 / pre_nr as f64, 
             trimmed_nb, 100.0*trimmed_nb as f64 / pre_nb as f64,
-            post_nr, 100.0*post_nr as f64 / post_nr as f64, 
-            post_nb, 100.0*post_nb as f64 / post_nb as f64,
+            post_nr, 100.0*post_nr as f64 / pre_nr as f64, 
+            post_nb, 100.0*post_nb as f64 / pre_nb as f64,
         );
     
         let _ =fs::write("bbduk.log", log_content.clone());
@@ -298,6 +298,7 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
         println!("Written output fastqs & bbduk.log -- {:?}.", 
             t4.duration_since(t3).unwrap(),
         );
+        return;
     }
 
     let t2 = SystemTime::now();
@@ -358,7 +359,7 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
 
     outputs.into_par_iter().enumerate().for_each(|(i, s)| {
         let mut tmp = GzEncoder::new(Vec::new(), Compression::fast());
-        let _ = tmp.write_all(s.into_iter().map(|x| x.1).join("").as_bytes()).unwrap();
+        let _ = tmp.write_all(s.into_iter().map(|x| x.2).join("").as_bytes()).unwrap();
         let _ = fs::write(&outpaths[i], tmp.finish().unwrap());
     });
 
@@ -366,8 +367,8 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
         pre_nr, pre_nb,
         trimmed_nr, 100.0*trimmed_nr as f64 / pre_nr as f64, 
         trimmed_nb, 100.0*trimmed_nb as f64 / pre_nb as f64,
-        post_nr, 100.0*post_nr as f64 / post_nr as f64, 
-        post_nb, 100.0*post_nb as f64 / post_nb as f64,
+        post_nr, 100.0*post_nr as f64 / pre_nr as f64, 
+        post_nb, 100.0*post_nb as f64 / pre_nb as f64,
     );
 
     let _ =fs::write("bbduk.log", log_content.clone());
