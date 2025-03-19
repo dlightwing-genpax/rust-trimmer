@@ -198,7 +198,7 @@ fn build_inverses(klen: usize) -> Vec<usize> {
 }
 
 
-fn consensus(candidates: &Vec<(bool, usize, usize)>, klen: usize, side: bool) -> (usize, usize, usize) {
+fn consensus(candidates: &Vec<(bool, usize, usize)>, klen: usize, side: bool, ok: bool) -> (bool, usize, usize, usize) {
     // merges all candidates, picks consensus bases
     // panics if there isn't an obvious consensus at some base
     let mut per_base_votes = vec![[0; 4]; klen];
@@ -217,13 +217,18 @@ fn consensus(candidates: &Vec<(bool, usize, usize)>, klen: usize, side: bool) ->
             per_base_votes[klen-j-1][base] += 1;
         }
     }
+    let mut valid = true;
     
     let adapter = (0..klen).into_iter().map(|j| {
         let ranked_decision = per_base_votes[j].iter().enumerate()
             .sorted_by_key(|x| -x.1).collect::<Vec<_>>();
         if *ranked_decision[1].1 > ranked_decision[0].1 * 3 / 4 {
             println!("Warning: adapter may be unreliable at position {j} {ranked_decision:?} {}!", candidates.len());
-            std::process::exit(95);
+            valid = false;
+            if !ok {
+                std::process::exit(95);
+            }
+
         }
         ranked_decision[0].0 << (2 * (klen - 1 - j))
     }).sum::<usize>();
@@ -235,7 +240,7 @@ fn consensus(candidates: &Vec<(bool, usize, usize)>, klen: usize, side: bool) ->
         (((adapter >> (2*i)) & 1) as usize) << i
     ).sum::<usize>();
 
-    (adapter, adapter_bit1, adapter_bit2)
+    (valid, adapter, adapter_bit1, adapter_bit2)
 }
 
 
@@ -254,82 +259,40 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
         get_adapter_candidates(read, &inverses, klen, maxdiff)
     }).collect::<Vec<_>>();
     
-    if candidates.len() < 100 {
-        println!("Only {} adapters, skipping.", candidates.len());
-        let t3 = SystemTime::now();
-
-        // hackily edit the original fastq trings to remove bases
-        let outputs = (0..2).into_iter().map(|i| {
-            readset.par_iter().filter_map(|read| {
-                if read[0].0.len() < 32 || read[1].0.len() < 32 {
-                    return None;
-                }
-                
-                Some((read[i].0.len(), 0, format!("{}\n{}\n+\n{}\n", read[i].3, read[i].4, read[i].5)))
-            }).collect::<Vec<_>>()
-        }).collect::<Vec<_>>();
-    
-        let pre_nr = readset.len();
-        let pre_nb = readset.iter().map(|r| r[0].0.len() + r[1].0.len()).sum::<usize>();
-        let post_nr = outputs[0].iter().zip(outputs[1].iter()).map(|(r1, r2)| if r1.1 == 0 && r2.1 == 0 {1} else {0}).sum::<usize>();
-        let post_nb = outputs[0].iter().map(|r| r.0).sum::<usize>() + outputs[1].iter().map(|r| r.0).sum::<usize>() ;
-        let trimmed_nr = pre_nr - post_nr;
-        let trimmed_nb = pre_nb - post_nb;
-    
-        outputs.into_par_iter().enumerate().for_each(|(i, s)| {
-            let mut tmp = GzEncoder::new(Vec::new(), Compression::fast());
-            let _ = tmp.write_all(s.into_iter().map(|x| x.2).join("").as_bytes()).unwrap();
-            let _ = fs::write(&outpaths[i], tmp.finish().unwrap());
-        });
-    
-        let log_content = format!("Input:\t{} reads\t{} bases.\nTotal Removed:\t{} reads ({:.2}%)\t{} bases ({:.2}%)\nResult:\t{} reads ({:.2}%)\t{} bases ({:.2}%)\n",
-            pre_nr, pre_nb,
-            trimmed_nr, 100.0*trimmed_nr as f64 / pre_nr as f64, 
-            trimmed_nb, 100.0*trimmed_nb as f64 / pre_nb as f64,
-            post_nr, 100.0*post_nr as f64 / pre_nr as f64, 
-            post_nb, 100.0*post_nb as f64 / pre_nb as f64,
-        );
-    
-        let _ =fs::write("bbduk.log", log_content.clone());
-    
-        println!("{log_content}");
-    
-        let t4 = SystemTime::now();
-        println!("Written output fastqs & bbduk.log -- {:?}.", 
-            t4.duration_since(t3).unwrap(),
-        );
-        return;
-    }
-
     let t2 = SystemTime::now();
     println!("Found {:?} strong adapter candidates -- {:?}.", 
         candidates.len(), t2.duration_since(t1).unwrap());
     
-    let (adapter1, a1_bit1, a1_bit2) = consensus(&candidates, klen, false);
-    println!("Deduced adapter [+index] for trimming read 1: {}.", render(adapter1, klen));
-    let (adapter2, a2_bit1, a2_bit2) = consensus(&candidates, klen, true);
-    println!("Deduced adapter [+index] for trimming read 2: {}.", render(adapter2, klen));
+    let (valid1, adapter1, a1_bit1, a1_bit2) = consensus(&candidates, klen, false, candidates.len() < 100);
+    let (valid2, adapter2, a2_bit1, a2_bit2) = consensus(&candidates, klen, true, candidates.len() < 100);
 
-    let trimlens = readset.par_iter().map(|read| {
-        if read[0].0.len() < 32 || read[1].0.len() < 32 {
+    let trimlens = if !valid1 || !valid2 {
+        println!("Couldn't identify adapter, however only {} adapter candidates, so skipping...", candidates.len());
+        readset.par_iter().map(|read| {
             return (0, 0);
-        }
+        }).collect::<Vec<_>>()
+    } else {
+        println!("Deduced adapter for trimming read 1: {}.", render(adapter1, klen));
+        println!("Deduced adapter for trimming read 2: {}.", render(adapter2, klen));
 
-        let trim1 = quick_calc_trim_len(klen, maxdiff, &read[0], &read[1], a1_bit1, a1_bit2, &inverses);
-        let trim2 = quick_calc_trim_len(klen, maxdiff, &read[1], &read[0], a2_bit1, a2_bit2, &inverses);
-        
-        if read[0].3.contains("66.46219 ") {
-            println!("debug..{klen} {trim1} {trim2} {} {}", read[0].0.len(), read[1].0.len());
-        }
-        if trim1 == read[0].0.len() && trim2 == read[1].0.len() {
-            // special case when already pre trimmed to different lengths
-            return (0, 0);
-        }
+        readset.par_iter().map(|read| {
+            if read[0].0.len() < 32 || read[1].0.len() < 32 {
+                return (0, 0);
+            }
 
-        let trim = min(trim1, trim2);
+            let trim1 = quick_calc_trim_len(klen, maxdiff, &read[0], &read[1], a1_bit1, a1_bit2, &inverses);
+            let trim2 = quick_calc_trim_len(klen, maxdiff, &read[1], &read[0], a2_bit1, a2_bit2, &inverses);
+            
+            if trim1 == read[0].0.len() && trim2 == read[1].0.len() {
+                // special case when already pre trimmed to different lengths
+                return (0, 0);
+            }
 
-        (trim, read[0].0.len() + read[1].0.len() - trim*2) 
-    }).collect::<Vec<_>>();
+            let trim = min(trim1, trim2);
+
+            (trim, read[0].0.len() + read[1].0.len() - trim*2) 
+        }).collect::<Vec<_>>()
+    };
 
     let t3 = SystemTime::now();
 

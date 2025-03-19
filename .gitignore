@@ -1,2 +1,4 @@
 *.lock
 target/*
+bbduk.log
+*.fastq.gz
