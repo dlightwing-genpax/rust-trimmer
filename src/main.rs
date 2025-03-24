@@ -159,6 +159,40 @@ fn get_adapter_candidates(read: &[ReadData; 2], inverses: &Vec<usize>, klen: usi
     adapters
 }
 
+fn judge(exist: usize, diff: usize, klen: usize, maxdiff: usize) -> bool {
+
+    if exist >= klen + maxdiff {
+        return diff <= maxdiff;
+    }
+
+    if exist >= klen + maxdiff - 2 {
+        return diff + 1 <= maxdiff;
+    }
+
+    if exist >= klen + maxdiff - 4 {
+        return diff + 2 <= maxdiff;
+    }
+
+    if exist >= klen + maxdiff - 6 {
+        return diff + 3 <= maxdiff;
+    }
+
+    if exist >= klen + maxdiff - 8 {
+        return diff + 4 <= maxdiff;
+    }
+
+    if exist >= klen + maxdiff - 10 {
+        return diff + 5 <= maxdiff;
+    }
+
+    if exist >= klen + maxdiff - 12 {
+        return diff + 6 <= maxdiff;
+    }
+
+    return false;
+
+}
+
 
 fn quick_calc_trim_len(klen: usize, maxdiff: usize, read: &ReadData, altread: &ReadData, 
     adapter_bit1: usize, adapter_bit2: usize, inverses: &Vec<usize>) -> usize {
@@ -203,7 +237,7 @@ fn quick_calc_trim_len(klen: usize, maxdiff: usize, read: &ReadData, altread: &R
 
         let mut iter = 0;
         while iter <= 2 * klen - diff {
-            if usize::count_ones(exist & mask) as usize >= klen && usize::count_ones(diff & mask) as usize <= maxdiff {
+            if judge(usize::count_ones(exist & mask) as usize, usize::count_ones(diff & mask) as usize, klen, maxdiff) {
                 // this is where we want to trim to
                 return is;
             }
@@ -211,7 +245,6 @@ fn quick_calc_trim_len(klen: usize, maxdiff: usize, read: &ReadData, altread: &R
             iter += 1;
             exist >>= 1;
             diff >>= 1;
-
         }
     }
 
@@ -382,9 +415,9 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct TrimArgs {
-    #[arg(long, default_value_t = 25)] // max of ~31 (or performance suffers)
+    #[arg(long, default_value_t = 27)] // max of ~31 (or performance suffers)
     klen: usize,
-    #[arg(long, default_value_t = 6)] // how many error bases to tolerate
+    #[arg(long, default_value_t = 8)] // how many error bases to tolerate
     maxdiff: usize,
     #[arg(long)]
     r1: String,
