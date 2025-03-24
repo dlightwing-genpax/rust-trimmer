@@ -121,6 +121,11 @@ fn get_adapter_candidates(read: &[ReadData; 2], inverses: &Vec<usize>, klen: usi
                     unpack(&read[0].1[is .. is+klen]),
                     unpack(&read[0].2[is .. is+klen]),
                 ));
+                adapters.push((
+                    true, // denotes r2 adapter seq candidate
+                    unpack(&read[1].1[is .. is+klen]),
+                    unpack(&read[1].2[is .. is+klen]),
+                ));
             }   
             continue;
         }   
