@@ -22,11 +22,14 @@ fn render(mut k: usize, klen: usize) -> String {
         k >>= 2;
     }
     bases.iter().map(|b| 
-        match b {0=>'A', 1=>'T', 2=>'G', 3=>'C', _=>'N'}
+        match b {0=>'A', 1=>'T', 2=>'C', 3=>'G', _=>'N'}
     ).collect::<String>()
 }
 
 fn unpack(slice: &BS) -> usize {
+    if slice.len() == 0 {
+        return 0;
+    }
     slice.load_be::<usize>()
 }
 
@@ -58,15 +61,15 @@ fn load_readset(fq1: &str, fq2: &str) -> Vec<[ReadData; 2]> {
                     read[3].to_string(),
                 );
             
-                for (idx, base) in read[1].chars().map(|c| 
-                    match c {'A'=>0, 'T'=>1, 'G'=>2, 'C'=>3, _=>4}
-                ).into_iter().enumerate() {
-                    if base == 4 {
+                for (idx, (b, q)) in read[1].chars().map(|c| 
+                    match c {'A'=>0, 'T'=>1, 'C'=>2, 'G'=>3, _=>4}
+                ).into_iter().zip(read[3].chars()).enumerate() {
+                    if b == 4 {
                         continue;
                     } else {
                         rtn.0.set(idx, true);
-                        rtn.1.set(idx, base >> 1 == 1);
-                        rtn.2.set(idx, base % 2 == 1);
+                        rtn.1.set(idx, b >> 1 == 1);
+                        rtn.2.set(idx, b % 2 == 1);
                     }
                 }
                 rtn
@@ -89,36 +92,61 @@ fn get_adapter_candidates(read: &[ReadData; 2], inverses: &Vec<usize>, klen: usi
         return vec![];
     }
 
-    for is in klen .. min(read[0].0.len(), read[1].0.len()) + 1 - klen {
+    for is in 0 .. max(read[0].0.len(), read[1].0.len()) + 1 - klen {
         // is => insert size
-        let q0 = unpack(&read[0].0[is-klen .. is]) & inverses[unpack(&read[1].0[0 .. klen])];
-        let q1 = unpack(&read[0].1[is-klen .. is]) ^ inverses[unpack(&read[1].1[0 .. klen])];
-        let q2 = unpack(&read[0].2[is-klen .. is]) ^ !inverses[unpack(&read[1].2[0 .. klen])];
 
-        let r0 = unpack(&read[1].0[is-klen .. is]) & inverses[unpack(&read[0].0[0 .. klen])];
-        let r1 = unpack(&read[1].1[is-klen .. is]) ^ inverses[unpack(&read[0].1[0 .. klen])];
-        let r2 = unpack(&read[1].2[is-klen .. is]) ^ !inverses[unpack(&read[0].2[0 .. klen])];
-    
-        // how much does seq before cursor in r1 match start seq of r2? 
-        let qscore = usize::count_ones(q0 & !q1 & !q2) as usize;   
-        // how much does seq before cursor in r2 match start seq of r1?
-        let rscore = usize::count_ones(r0 & !r1 & !r2) as usize;
+        if is + klen <= min(read[0].0.len(), read[1].0.len()) {
+            let force_klen = min(is, klen);
+            
+            let q0 = unpack(&read[0].0[is-force_klen .. is]) & inverses[unpack(&read[1].0[0 .. force_klen])];
+            let q1 = unpack(&read[0].1[is-force_klen .. is]) ^ inverses[unpack(&read[1].1[0 .. force_klen])];
+            let q2 = unpack(&read[0].2[is-force_klen .. is]) ^ !inverses[unpack(&read[1].2[0 .. force_klen])];
+            let qscore = usize::count_ones(q0 & !q1 & !q2) as usize;   
+            let q_ok = read[0].0[is .. is+klen].count_ones() == klen;
 
-        // hack to make it work for some old samples (assume first 9 bases of both adapters are the same)
-        let x0 = unpack(&read[0].0[is .. is + 9]) & unpack(&read[1].0[is .. is + 9]);
-        let x1 = unpack(&read[0].1[is .. is + 9]) ^ unpack(&read[1].1[is .. is + 9]);
-        let x2 = unpack(&read[0].2[is .. is + 9]) ^ unpack(&read[1].2[is .. is + 9]);
-        let xscore = usize::count_ones(x0 & !x1 & !x2);
+            let r0 = unpack(&read[1].0[is-force_klen .. is]) & inverses[unpack(&read[0].0[0 .. force_klen])];
+            let r1 = unpack(&read[1].1[is-force_klen .. is]) ^ inverses[unpack(&read[0].1[0 .. force_klen])];
+            let r2 = unpack(&read[1].2[is-force_klen .. is]) ^ !inverses[unpack(&read[0].2[0 .. force_klen])];
+            let rscore = usize::count_ones(r0 & !r1 & !r2) as usize;   
+            let r_ok = read[1].0[is .. is+klen].count_ones() == klen;
 
-        if min(qscore, rscore) >= klen - max_diff && xscore >= 8 {
-            if read[0].0[is .. is+klen].count_ones() == klen {
+            let x0 = unpack(&read[0].0[is .. is + 9]) & unpack(&read[1].0[is .. is + 9]);
+            let x1 = unpack(&read[0].1[is .. is + 9]) ^ unpack(&read[1].1[is .. is + 9]);
+            let x2 = unpack(&read[0].2[is .. is + 9]) ^ unpack(&read[1].2[is .. is + 9]);
+            let xscore = usize::count_ones(x0 & !x1 & !x2);
+
+            if qscore == force_klen && rscore == force_klen && xscore == 9 && q_ok && r_ok {
+                adapters.push((
+                    false, // denotes r1 adapter seq candidate
+                    unpack(&read[0].1[is .. is+klen]),
+                    unpack(&read[0].2[is .. is+klen]),
+                ));
+            }   
+            continue;
+        }   
+
+        if is >= klen && is + klen <= read[0].0.len() {
+            let q0 = unpack(&read[0].0[is-klen .. is]) & inverses[unpack(&read[1].0[0 .. klen])];
+            let q1 = unpack(&read[0].1[is-klen .. is]) ^ inverses[unpack(&read[1].1[0 .. klen])];
+            let q2 = unpack(&read[0].2[is-klen .. is]) ^ !inverses[unpack(&read[1].2[0 .. klen])];
+            let qscore = usize::count_ones(q0 & !q1 & !q2) as usize;   
+            let q_ok = read[0].0[is .. is+klen].count_ones() == klen;
+            if qscore == klen && q_ok {
                 adapters.push((
                     false, // denotes r1 adapter seq candidate
                     unpack(&read[0].1[is .. is+klen]),
                     unpack(&read[0].2[is .. is+klen]),
                 ));
             }
-            if read[1].0[is .. is+klen].count_ones() == klen {
+        }
+
+        if is >= klen && is + klen <= read[1].0.len() {
+            let r0 = unpack(&read[1].0[is-klen .. is]) & inverses[unpack(&read[0].0[0 .. klen])];
+            let r1 = unpack(&read[1].1[is-klen .. is]) ^ inverses[unpack(&read[0].1[0 .. klen])];
+            let r2 = unpack(&read[1].2[is-klen .. is]) ^ !inverses[unpack(&read[0].2[0 .. klen])];
+            let rscore = usize::count_ones(r0 & !r1 & !r2) as usize;   
+            let r_ok = read[1].0[is .. is+klen].count_ones() == klen;
+            if rscore == klen && r_ok {
                 adapters.push((
                     true, // denotes r2 adapter seq candidate
                     unpack(&read[1].1[is .. is+klen]),
@@ -155,6 +183,8 @@ fn quick_calc_trim_len(klen: usize, maxdiff: usize, read: &ReadData, altread: &R
         return 0;
     } 
 
+    let mask = (1 << (klen + maxdiff)) - 1;
+
     for is in 0 .. l {
         // is => insert size
         let query0 = unpack(&read.0[max(is, klen) - klen .. min(is + klen, l)]);
@@ -168,17 +198,20 @@ fn quick_calc_trim_len(klen: usize, maxdiff: usize, read: &ReadData, altread: &R
             target2 >>= 1;
         }
 
-        let exist = query0 & target0;
-        let diff = exist & ((query1 ^ target1) | (query2 ^ target2));
+        let mut exist = query0 & target0;
+        let mut diff = exist & ((query1 ^ target1) | (query2 ^ target2));
 
-        if read.3.contains("66.46219 ") {
-            println!("debug..{klen} {is} {} {}", usize::count_ones(exist), usize::count_ones(diff));
-        }
+        let mut iter = 0;
+        while iter <= 2 * klen - diff {
+            if usize::count_ones(exist & mask) as usize >= klen && usize::count_ones(diff & mask) as usize <= maxdiff {
+                // this is where we want to trim to
+                return is;
+            }
 
-        // actual logic should vary maxdiff & minexist depending on length (between k and 2k)
-        if usize::count_ones(exist) as usize >= klen && usize::count_ones(diff) as usize <= maxdiff {
-            // this is where we want to trim to
-            return is;
+            iter += 1;
+            exist >>= 1;
+            diff >>= 1;
+
         }
     }
 
@@ -222,7 +255,7 @@ fn consensus(candidates: &Vec<(bool, usize, usize)>, klen: usize, side: bool, al
     let adapter = (0..klen).into_iter().map(|j| {
         let ranked_decision = per_base_votes[j].iter().enumerate()
             .sorted_by_key(|x| -x.1).collect::<Vec<_>>();
-        if *ranked_decision[1].1 > ranked_decision[0].1 * 3 / 4 {
+        if ranked_decision[1].1 + ranked_decision[2].1 + ranked_decision[3].1 > *ranked_decision[0].1 {
             println!("Warning: adapter may be unreliable at position {j} {ranked_decision:?} {}!", candidates.len());
             valid = false;
             if !allow_fail {
@@ -283,7 +316,7 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
 
             let trim1 = quick_calc_trim_len(klen, maxdiff, &read[0], &read[1], a1_bit1, a1_bit2, &inverses);
             let trim2 = quick_calc_trim_len(klen, maxdiff, &read[1], &read[0], a2_bit1, a2_bit2, &inverses);
-            
+
             if trim1 == read[0].0.len() && trim2 == read[1].0.len() {
                 // special case when already pre trimmed to different lengths
                 return (0, 0);
@@ -300,7 +333,7 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
     // hackily edit the original fastq trings to remove bases
     let outputs = (0..2).into_iter().map(|i| {
         readset.par_iter().zip(trimlens.par_iter()).filter_map(|(read, (trimlen, trim))| {
-            if read[0].0.len() < 32 || read[1].0.len() < 32 || (trimlen > & 0 && trimlen < &32) {
+            if read[0].0.len() < 32 || read[1].0.len() < 32 || (trimlen > &0 && trimlen < &32) {
                 return None;
             }
             
@@ -349,9 +382,9 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, maxdiff: usize
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct TrimArgs {
-    #[arg(long, default_value_t = 16)] // max of ~31 (or performance suffers)
+    #[arg(long, default_value_t = 25)] // max of ~31 (or performance suffers)
     klen: usize,
-    #[arg(long, default_value_t = 3)] // how many error bases to tolerate
+    #[arg(long, default_value_t = 6)] // how many error bases to tolerate
     maxdiff: usize,
     #[arg(long)]
     r1: String,
