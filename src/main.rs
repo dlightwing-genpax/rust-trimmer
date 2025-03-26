@@ -268,7 +268,7 @@ fn consensus(candidates: &Vec<(bool, usize, usize)>, klen: usize, side: bool, al
     let adapter = (0..klen).into_iter().map(|j| {
         let ranked_decision = per_base_votes[j].iter().enumerate()
             .sorted_by_key(|x| -x.1).collect::<Vec<_>>();
-        if ranked_decision[1].1 + ranked_decision[2].1 / 3 + ranked_decision[3].1 / 5 > *ranked_decision[0].1 {
+        if ranked_decision[1].1 * 10 / 9 > 10 + *ranked_decision[0].1 {
             println!("Warning: adapter may be unreliable at position {j} {ranked_decision:?} {}!", candidates.len());
             valid = false;
             if !allow_fail {
