@@ -202,6 +202,7 @@ fn quick_calc_trim_len(klen: usize, winsize: usize, maxdiff: usize, read: &ReadD
     } 
 
     let mask = (1 << winsize) - 1;
+    let tailcheck = (1 << maxdiff) - 1;
 
     // TODO handle -1 ??
     for is in 0 .. l {
@@ -230,7 +231,7 @@ fn quick_calc_trim_len(klen: usize, winsize: usize, maxdiff: usize, read: &ReadD
 
         while exist > 0 {
             // moving window
-            if usize::count_ones(exist & mask) as usize >= winsize - maxdiff && usize::count_ones(diff & mask) as usize <= maxdiff && diff & 7 == 0 {
+            if usize::count_ones(exist & mask) as usize >= winsize - maxdiff && usize::count_ones(diff & mask) as usize <= maxdiff && diff & tailcheck == 0 && exist & tailcheck == tailcheck {
                 // this is where we want to trim to
                 return is;
             }
