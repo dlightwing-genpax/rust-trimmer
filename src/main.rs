@@ -220,8 +220,17 @@ fn quick_calc_trim_len(klen: usize, winsize: usize, maxdiff: usize, read: &ReadD
         let mut exist = query0 & target0;
         let mut diff = exist & ((query1 ^ target1) | (query2 ^ target2));
 
+        if l - is >= 9 && l - is <= winsize {
+            // special rule for catching start
+            let tmp = l-is;
+            if usize::count_ones(exist & ((1<<tmp) - 1)) as usize == tmp && diff & ((1<<tmp) - 1) == 0 {
+                return is;
+            }
+        }
+
         while exist > 0 {
-            if usize::count_ones(exist & mask) as usize >= winsize - maxdiff && usize::count_ones(diff & mask) as usize <= maxdiff && diff & 3 == 0 {
+            // moving window
+            if usize::count_ones(exist & mask) as usize >= winsize - maxdiff && usize::count_ones(diff & mask) as usize <= maxdiff {
                 // this is where we want to trim to
                 return is;
             }
