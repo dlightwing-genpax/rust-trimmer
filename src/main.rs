@@ -230,7 +230,7 @@ fn quick_calc_trim_len(klen: usize, winsize: usize, maxdiff: usize, read: &ReadD
 
         while exist > 0 {
             // moving window
-            if usize::count_ones(exist & mask) as usize >= winsize - maxdiff && usize::count_ones(diff & mask) as usize <= maxdiff && diff & 7 == 7 {
+            if usize::count_ones(exist & mask) as usize >= winsize - maxdiff && usize::count_ones(diff & mask) as usize <= maxdiff && diff & 7 == 0 {
                 // this is where we want to trim to
                 return is;
             }
