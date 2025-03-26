@@ -306,38 +306,44 @@ fn trim(inpaths: [String; 2], outpaths: [String; 2], klen: usize, winsize: usize
     
     let (c1, c2) = (candidates.iter().filter(|x| !x.0).count(), candidates.iter().filter(|x| x.0).count()); 
     let t2 = SystemTime::now();
-    println!("Found {c1} & {c2} strong adapter candidates -- {:?}.", t2.duration_since(t1).unwrap());
-    
-    let allow_fail = (c1 == 0 && c2 == 0) || min(c1, c2) > 1 && max(c1, c2) < 100;
-    let (valid1, adapter1, a1_bit1, a1_bit2) = consensus(&candidates, klen, false, allow_fail);
-    let (valid2, adapter2, a2_bit1, a2_bit2) = consensus(&candidates, klen, true, allow_fail);
+    println!("Found {c1} r1 & {c2} r2 adapter candidates -- {:?}.", t2.duration_since(t1).unwrap());
 
-    let trimlens = if !valid1 || !valid2 {
-        println!("Couldn't identify adapter, however only {} adapter candidates, so skipping...", candidates.len());
+    let trimlens = if c1 < 2 && c2 < 2 {
+        println!("Only {} adapter candidates, skipping...", candidates.len());
         readset.par_iter().map(|_| {
             return (0, 0);
         }).collect::<Vec<_>>()
     } else {
-        println!("Deduced adapter for trimming read 1: {}.", render(adapter1, klen));
-        println!("Deduced adapter for trimming read 2: {}.", render(adapter2, klen));
-
-        readset.par_iter().map(|read| {
-            if read[0].0.len() < 32 || read[1].0.len() < 32 {
+        let allow_fail = min(c1, c2) > 1 && max(c1, c2) < 100;
+        let (valid1, adapter1, a1_bit1, a1_bit2) = consensus(&candidates, klen, false, allow_fail);
+        let (valid2, adapter2, a2_bit1, a2_bit2) = consensus(&candidates, klen, true, allow_fail);
+        if !valid1 || !valid2 {
+            println!("Couldn't identify adapter, however only {} adapter candidates, skipping...", candidates.len());
+            readset.par_iter().map(|_| {
                 return (0, 0);
-            }
+            }).collect::<Vec<_>>()
+        } else {
+            println!("Deduced adapter for trimming read 1: {}.", render(adapter1, klen));
+            println!("Deduced adapter for trimming read 2: {}.", render(adapter2, klen));
 
-            let trim1 = quick_calc_trim_len(klen, winsize, maxdiff, &read[0], &read[1], a1_bit1, a1_bit2);
-            let trim2 = quick_calc_trim_len(klen, winsize, maxdiff, &read[1], &read[0], a2_bit1, a2_bit2);
+            readset.par_iter().map(|read| {
+                if read[0].0.len() < 32 || read[1].0.len() < 32 {
+                    return (0, 0);
+                }
 
-            if trim1 == read[0].0.len() && trim2 == read[1].0.len() {
-                // special case when already pre trimmed to different lengths
-                return (0, 0);
-            }
+                let trim1 = quick_calc_trim_len(klen, winsize, maxdiff, &read[0], &read[1], a1_bit1, a1_bit2);
+                let trim2 = quick_calc_trim_len(klen, winsize, maxdiff, &read[1], &read[0], a2_bit1, a2_bit2);
 
-            let trim = min(trim1, trim2);
+                if trim1 == read[0].0.len() && trim2 == read[1].0.len() {
+                    // special case when already pre trimmed to different lengths
+                    return (0, 0);
+                }
 
-            (trim, read[0].0.len() + read[1].0.len() - trim*2) 
-        }).collect::<Vec<_>>()
+                let trim = min(trim1, trim2);
+
+                (trim, read[0].0.len() + read[1].0.len() - trim*2) 
+            }).collect::<Vec<_>>()
+        }
     };
 
     let t3 = SystemTime::now();
